@@ -7,15 +7,21 @@ import bmesh
 # 完璧なアドオンだ
 
 bl_info = {
-    "name": "Viewport Rename",
+    "name": "Perspective Magic",
     "author": "poor",
-    "version": (0, 2),
-    "blender": (2, 77, 0),
-    "location": "3D View > Ctrl+R",
+    "version": (0, 1),
+    "blender": (2, 79, 0),
+    "location": "3D View > Ctrl+J",
     "category": "3D View"
 }
 
 def move_from_camera(length):
+    # ペアレントがある場合にうまくいかない可能性がある。検証する
+    # カメラは常に設定されていなければならない
+    # メッシュエディットモードでなければならない
+
+    camera_location = bpy.context.scene.camera.location
+
     #モードチェック
     if(bpy.context.object.mode == 'EDIT'):
         # もし選択されているのが頂点なら
@@ -23,7 +29,6 @@ def move_from_camera(length):
         # 移動後のワールド座標を求める
         # ワールド座標をローカル座標に変換する
         # ローカル座標を変換する
-        print("aaa");
         mesh = bpy.context.object.data
         selected_verts = list(filter(lambda v: v.select, mesh.vertices))
 
@@ -35,7 +40,7 @@ def move_from_camera(length):
         bm = bmesh.from_edit_mesh(bpy.context.object.data)
         mat_world = bpy.context.object.matrix_world
         mat_inverted = mat_world.inverted()
-        camera_location = bpy.context.scene.camera.location
+
 
         for i in bm.verts:
             if i.select == True:
@@ -55,9 +60,7 @@ def move_from_camera(length):
         # bpy.ops.object.mode_set(mode='EDIT')
 
     elif(bpy.context.object.mode == 'OBJECT'):
-        print("aaaxxxxxxxx");
         object_location = bpy.context.object.location
-        camera_location = bpy.context.scene.camera.location
         move_vector = object_location - camera_location
         move_vector = move_vector.normalized()
         bpy.context.active_object.location = bpy.context.active_object.location + move_vector * length
@@ -87,10 +90,10 @@ def get_screen_position(co):
     ))
     return (co_2d.x * render_size[0],co_2d.y * render_size[1],0)
 
-class ModalOperator(bpy.types.Operator):
-    bl_idname = "object.modal_operator"
-    bl_label = "Simple Modal Operator"
-    type2 = bpy.props.FloatProperty(name="Test Prob", default=0, step=1)
+class PerspectiveMagicModal(bpy.types.Operator):
+    bl_idname = "object.perspective_magic_modal_operator"
+    bl_label = "Perspective Magic Modal Operator"
+    #type2 = bpy.props.FloatProperty(name="Test Prob", default=0, step=1)
 
     # Init
     def __init__(self):
@@ -105,6 +108,7 @@ class ModalOperator(bpy.types.Operator):
         self.mouse_initial_y = event.mouse_y
         self.value = 0
         self.temp = event.mouse_y
+        self.button = ""
         #self.value = event.mouse_xa
         self.execute(context)
         context.window_manager.modal_handler_add(self)
@@ -113,7 +117,16 @@ class ModalOperator(bpy.types.Operator):
     # Actual content
     def execute(self, context):
         print("excute");
-        move_from_camera(self.value / 100.0)
+
+        if self.button == "Shift":
+            move_from_camera(self.value / 1000.0)
+        elif self.button == "Ctrl":
+            move_from_camera(self.value / 10.0)
+        else:
+            move_from_camera(self.value / 100.0)
+
+        self.button = ""
+
         # context.object.location.x = self.init_loc_x + self.value / 100.0
         return {'FINISHED'}
 
@@ -124,6 +137,11 @@ class ModalOperator(bpy.types.Operator):
             # Use UP / DOWN
             self.value = self.temp - event.mouse_y
             self.temp = event.mouse_y
+
+            if event.shift:
+                self.button = "Shift"
+            if event.ctrl:
+                self.button = "Ctrl"
 
             print(self.value)
             self.execute(context)
@@ -140,77 +158,25 @@ class ModalOperator(bpy.types.Operator):
     def __del__(self):
         print("del")
 
-
-
-#bpy.utils.register_class(ModalOperator)
-# test call
-#bpy.ops.object.modal_operator('INVOKE_DEFAULT')
-
-
-class ViewportRenameOperator(bpy.types.Operator):
+class PerspectiveMagic(bpy.types.Operator):
     """Rename Objects in 3d View"""
     bl_idname = "view3d.perspective_magic"
     bl_label = "Perspective Magic"
     bl_options = {'REGISTER', 'UNDO'}
-    type = bpy.props.StringProperty()
-    type2 = bpy.props.FloatProperty(name="Test Prob",default=0,step=1)
+    float_property = bpy.props.FloatProperty(name="Distance",default=0,step=1)
 
     @classmethod
     def poll(cls, context):
-        # return (bool(context.selected_objects))
         return True
 
     def execute(self, context):
-        # get_screen_position(bpy.context.active_object)
         move_from_camera(self.type2)
 
         return {'FINISHED'}
 
-        if False:
-            scn = context.scene
-            self.report({'INFO'}, "Hello World")
-
-            user_input = self.type
-            reverse = False
-            if user_input.endswith("#r"):
-                reverse = True
-                user_input = user_input[:-1]
-
-            suff = re.findall("#+$", user_input)
-            if user_input and suff:
-                number = ('%0'+str(len(suff[0]))+'d', len(suff[0]))
-                real_name = re.sub("#", '', user_input)
-
-                objs = context.selected_objects[::-1] if reverse else context.selected_objects
-                names_before = [n.name for n in objs]
-                for c, o in enumerate(objs, start=1):
-                    o.name = (real_name + (number[0] % c))
-                self.report({'INFO'}, "Renamed {}".format(", ".join(names_before)))
-                return {'FINISHED'}
-
-            elif user_input:
-                #Correct Input
-                old_name = context.active_object.name
-                context.active_object.name = user_input
-                self.report({'INFO'}, "{} renamed to {}".format(old_name, user_input))
-                return {'FINISHED'}
-
-            else:
-                #No input
-                self.report({'INFO'}, "No input, operation cancelled")
-                return {'CANCELLED'}
-
-    def disable_invoke(self, context, event):
-        wm = context.window_manager
-        self.type = context.active_object.name
-        #return wm.invoke_popup(self, width=400, height=200)
-        return wm.invoke_props_dialog(self)
-
     def draw(self, context):
         row = self.layout
-        # row.prop(self, "type", text="New name")
-        row.prop(self, "type2", text="New name")
-
+        row.prop(self, "float_property", text="Distance")
 
 # ------------------------------------------------------------------------
 #    register and unregister functions
@@ -220,15 +186,15 @@ addon_keymaps = []
 
 def register():
     # bpy.utils.register_module(__name__)
-    bpy.utils.register_class(ViewportRenameOperator)
-    bpy.utils.register_class(ModalOperator)
+    # bpy.utils.register_class(PerspectiveMagic)
+    bpy.utils.register_class(PerspectiveMagicModal)
 
     # handle the keymap
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if kc:
         km = wm.keyconfigs.addon.keymaps.new(name='3D View', space_type='VIEW_3D')
-        kmi = km.keymap_items.new(ModalOperator.bl_idname, type='J', value='PRESS', ctrl=True)
+        kmi = km.keymap_items.new(PerspectiveMagicModal.bl_idname, type='J', value='PRESS', ctrl=True)
         addon_keymaps.append((km, kmi))
 
 def unregister():
@@ -238,16 +204,20 @@ def unregister():
     addon_keymaps.clear()
 
     # bpy.utils.unregister_module(__name__)
-    bpy.utils.unregister_class(ViewportRenameOperator)
-    bpy.utils.unregister_class(ModalOperator)
+    # bpy.utils.unregister_class(PerspectiveMagic)
+    bpy.utils.unregister_class(PerspectiveMagicModal)
     #del bpy.types.Scene.viewport_rename
 
 if __name__ == "__main__":
     register()
 
-try:
-    unregister()
-except:
-    pass
-finally:
-    register()
+# Debug ---------------------------------------------------------------------
+debug = 0
+if debug == 1:
+    try:
+        unregister()
+    except:
+        pass
+    finally:
+        register()
+# ---------------------------------------------------------------------------
