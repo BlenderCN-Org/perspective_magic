@@ -16,8 +16,6 @@ bl_info = {
 }
 
 def move_from_camera(length):
-
-
     #モードチェック
     if(bpy.context.object.mode == 'EDIT'):
         # もし選択されているのが頂点なら
@@ -89,6 +87,65 @@ def get_screen_position(co):
     ))
     return (co_2d.x * render_size[0],co_2d.y * render_size[1],0)
 
+class ModalOperator(bpy.types.Operator):
+    bl_idname = "object.modal_operator"
+    bl_label = "Simple Modal Operator"
+    type2 = bpy.props.FloatProperty(name="Test Prob", default=0, step=1)
+
+    # Init
+    def __init__(self):
+        print("init")
+
+    # invoke
+    def invoke(self, context, event):
+        print("invoke");
+        # self.init_loc_x = context.object.location.x
+        # self.init_loc_x = context.object.location.y
+        self.mouse_initial_x = event.mouse_x
+        self.mouse_initial_y = event.mouse_y
+        self.value = 0
+        self.temp = event.mouse_y
+        #self.value = event.mouse_xa
+        self.execute(context)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    # Actual content
+    def execute(self, context):
+        print("excute");
+        move_from_camera(self.value / 100.0)
+        # context.object.location.x = self.init_loc_x + self.value / 100.0
+        return {'FINISHED'}
+
+    # While loop
+    def modal(self, context, event):
+        print("modal");
+        if event.type == 'MOUSEMOVE':  # Apply
+            # Use UP / DOWN
+            self.value = self.temp - event.mouse_y
+            self.temp = event.mouse_y
+
+            print(self.value)
+            self.execute(context)
+        elif event.type == 'LEFTMOUSE':  # Confirm
+            return {'FINISHED'}
+        elif event.type in {'RIGHTMOUSE', 'ESC'}:  # Cancel
+            move_from_camera(0)
+            #context.object.location.x = self.init_loc_x
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    # End
+    def __del__(self):
+        print("del")
+
+
+
+#bpy.utils.register_class(ModalOperator)
+# test call
+#bpy.ops.object.modal_operator('INVOKE_DEFAULT')
+
 
 class ViewportRenameOperator(bpy.types.Operator):
     """Rename Objects in 3d View"""
@@ -96,7 +153,7 @@ class ViewportRenameOperator(bpy.types.Operator):
     bl_label = "Perspective Magic"
     bl_options = {'REGISTER', 'UNDO'}
     type = bpy.props.StringProperty()
-    type2 = bpy.props.FloatProperty(name="Test Prob",default=1.0)
+    type2 = bpy.props.FloatProperty(name="Test Prob",default=0,step=1)
 
     @classmethod
     def poll(cls, context):
@@ -106,10 +163,6 @@ class ViewportRenameOperator(bpy.types.Operator):
     def execute(self, context):
         # get_screen_position(bpy.context.active_object)
         move_from_camera(self.type2)
-
-
-
-
 
         return {'FINISHED'}
 
@@ -168,13 +221,14 @@ addon_keymaps = []
 def register():
     # bpy.utils.register_module(__name__)
     bpy.utils.register_class(ViewportRenameOperator)
+    bpy.utils.register_class(ModalOperator)
 
     # handle the keymap
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if kc:
         km = wm.keyconfigs.addon.keymaps.new(name='3D View', space_type='VIEW_3D')
-        kmi = km.keymap_items.new(ViewportRenameOperator.bl_idname, type='X', value='PRESS', ctrl=True)
+        kmi = km.keymap_items.new(ModalOperator.bl_idname, type='J', value='PRESS', ctrl=True)
         addon_keymaps.append((km, kmi))
 
 def unregister():
@@ -185,6 +239,7 @@ def unregister():
 
     # bpy.utils.unregister_module(__name__)
     bpy.utils.unregister_class(ViewportRenameOperator)
+    bpy.utils.unregister_class(ModalOperator)
     #del bpy.types.Scene.viewport_rename
 
 if __name__ == "__main__":
