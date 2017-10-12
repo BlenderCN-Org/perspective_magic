@@ -16,7 +16,7 @@ bl_info = {
     "category": "3D View"
 }
 
-def move_from_camera(length):
+def move_from_camera(orig_array,length):
     # ペアレントがある場合にうまくいかない可能性がある。検証する
     # カメラは常に設定されていなければならない
     # メッシュエディットモードでなければならない
@@ -43,21 +43,23 @@ def move_from_camera(length):
         mat_inverted = mat_world.inverted()
 
 
-        for i in bm.verts:
+        for (i ,j ) in zip(bm.verts,orig_array):
             if i.select == True:
-                vert = i
-                object_location = mat_world * vert.co
+
+                object_location = mat_world * j
                 move_vector = object_location - camera_location
                 move_vector = move_vector.normalized()
-                vert.co = object_location + move_vector * length
-                vert.co = mat_inverted * vert.co
+                j = object_location + move_vector * length
+                j = mat_inverted * j
+
+                i.co = j
                 # bpy.ops.transform.translate(value=move_vector * length, constraint_axis=(False, False, False),
                 #                             constraint_orientation='GLOBAL', mirror=False, proportional='DISABLED',
                 #                             proportional_edit_falloff='SMOOTH', proportional_size=1)
                 # vert.co = mat_world.inverted() * (bpy.context.active_object.location + move_vector * length)
         bmesh.update_edit_mesh(mesh)
-        # bm.to_mesh(mesh)
         # bm.free()
+        # bm.to_mesh(mesh)
         # bpy.ops.object.mode_set(mode='EDIT')
 
     elif(bpy.context.object.mode == 'OBJECT'):
@@ -93,7 +95,7 @@ def get_screen_position(co):
 class PerspectiveMagicModal(bpy.types.Operator):
     bl_idname = "object.perspective_magic_modal_operator"
     bl_label = "Perspective Magic Modal Operator"
-    #type2 = bpy.props.FloatProperty(name="Test Prob", default=0, step=1)
+    distance = bpy.props.FloatProperty(name="distance", default=0, step=1)
 
     # Init
     def __init__(self):
@@ -109,30 +111,30 @@ class PerspectiveMagicModal(bpy.types.Operator):
         self.value = 0
         self.temp = event.mouse_y
         self.button = ""
-        #self.value = event.mouse_xa
+
+        # オリジナルポジションを保持--------------------------------------
+        bm = bmesh.from_edit_mesh(bpy.context.object.data)
+        self.orig_array = []
+        for v in bm.verts:
+            self.orig_array.append(v.co.copy())
+        # ---------------------------------------------------------------
+
         self.execute(context)
+
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
     # Actual content
     def execute(self, context):
-        print("excute");
-
-        if self.button == "Shift":
-            move_from_camera(self.value / 1000.0)
-        elif self.button == "Ctrl":
-            move_from_camera(self.value / 10.0)
-        else:
-            move_from_camera(self.value / 100.0)
-
-        self.button = ""
-
-        # context.object.location.x = self.init_loc_x + self.value / 100.0
+        move_from_camera(self.orig_array,self.distance)
         return {'FINISHED'}
+
+    def draw(self, context):
+        row = self.layout
+        row.prop(self, "distance", text="Distance")
 
     # While loop
     def modal(self, context, event):
-        print("modal");
         if event.type == 'MOUSEMOVE':  # Apply
             # Use UP / DOWN
             self.value = self.temp - event.mouse_y
@@ -143,13 +145,24 @@ class PerspectiveMagicModal(bpy.types.Operator):
             if event.ctrl:
                 self.button = "Ctrl"
 
-            print(self.value)
+            if self.button == "Shift":
+                self.distance += self.value / 10000.0
+                # move_from_camera(self.value / 1000.0)
+            elif self.button == "Ctrl":
+                self.distance += self.value / 100.0
+                # move_from_camera(self.value / 10.0)
+            else:
+                self.distance += self.value / 1000.0
+
+            self.button = ""
+
             self.execute(context)
+
         elif event.type == 'LEFTMOUSE':  # Confirm
             return {'FINISHED'}
+
         elif event.type in {'RIGHTMOUSE', 'ESC'}:  # Cancel
-            move_from_camera(0)
-            #context.object.location.x = self.init_loc_x
+            move_from_camera(self.orig_array,0)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
@@ -157,26 +170,6 @@ class PerspectiveMagicModal(bpy.types.Operator):
     # End
     def __del__(self):
         print("del")
-
-class PerspectiveMagic(bpy.types.Operator):
-    """Rename Objects in 3d View"""
-    bl_idname = "view3d.perspective_magic"
-    bl_label = "Perspective Magic"
-    bl_options = {'REGISTER', 'UNDO'}
-    float_property = bpy.props.FloatProperty(name="Distance",default=0,step=1)
-
-    @classmethod
-    def poll(cls, context):
-        return True
-
-    def execute(self, context):
-        move_from_camera(self.type2)
-
-        return {'FINISHED'}
-
-    def draw(self, context):
-        row = self.layout
-        row.prop(self, "float_property", text="Distance")
 
 # ------------------------------------------------------------------------
 #    register and unregister functions
@@ -194,7 +187,7 @@ def register():
     kc = wm.keyconfigs.addon
     if kc:
         km = wm.keyconfigs.addon.keymaps.new(name='3D View', space_type='VIEW_3D')
-        kmi = km.keymap_items.new(PerspectiveMagicModal.bl_idname, type='J', value='PRESS', ctrl=True)
+        kmi = km.keymap_items.new(PerspectiveMagicModal.bl_idname, type='G', value='PRESS', ctrl=True)
         addon_keymaps.append((km, kmi))
 
 def unregister():
@@ -254,117 +247,113 @@ def change_empty_location(lens_size,sensor_size,t_array):
         cl = bpy.context.scene.camera.location
         unit.y = (cl + move).y
 
+def calculate_perspective():
+    # lens_length = 1
+    # lens_limit = 16
+    # lens_step = 1
+    # min = 1
+    # limit = 16
+    # step = 0.1
 
+    lens_length = 4
+    lens_limit = 5
+    lens_step = 1
 
-print("TEST")
+    sensor_size = 1
 
+    min = 1
+    limit = 16
+    step = 0.1
 
-# lens_length = 1
-# lens_limit = 16
-# lens_step = 1
-# min = 1
-# limit = 16
-# step = 0.1
-
-lens_length = 4
-lens_limit = 5
-lens_step = 1
-
-sensor_size = 1
-
-min = 1
-limit = 16
-step = 0.1
-
-while lens_length < lens_limit:
-    camera_location = bpy.context.scene.camera.location
+    while lens_length < lens_limit:
+        camera_location = bpy.context.scene.camera.location
 
 
 
-    A = bpy.data.objects["A"].location
-    AD = bpy.data.objects["A'"].location
-    B = bpy.data.objects["B"].location
-    BD = bpy.data.objects["B'"].location
+        A = bpy.data.objects["A"].location
+        AD = bpy.data.objects["A'"].location
+        B = bpy.data.objects["B"].location
+        BD = bpy.data.objects["B'"].location
 
-    t_array = [A,B,AD,BD]
+        t_array = [A,B,AD,BD]
 
-    # 値を変えている部分 -----------------------------------------
-    change_empty_location(lens_length,sensor_size,t_array)
-    # ------------------------------------------------------------
-
-
-    AE = (A - camera_location).normalized()
-    ADE = (AD - camera_location).normalized()
-    BE = (B - camera_location).normalized()
-
-    BDScreen = get_screen_position(BD)
+        # 値を変えている部分 -----------------------------------------
+        change_empty_location(lens_length,sensor_size,t_array)
+        # ------------------------------------------------------------
 
 
+        AE = (A - camera_location).normalized()
+        ADE = (AD - camera_location).normalized()
+        BE = (B - camera_location).normalized()
 
-    a_length = min
-    ad_length = min
-    b_length = min
+        BDScreen = get_screen_position(BD)
 
 
-    array = []
 
-    while a_length < limit:
-        AM = camera_location + AE * a_length
-        # bpy.ops.object.empty_add(type='PLAIN_AXES', view_align=False, location=AM, layers=(
-        #    False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False,
-        #    False, False, False, False))
-
+        a_length = min
         ad_length = min
-        while ad_length < limit:
-            ADM = camera_location + ADE * ad_length
-            # bpy.ops.object.empty_add(type='PLAIN_AXES', view_align=False, location=ADM, layers=(
+        b_length = min
+
+
+        array = []
+
+        while a_length < limit:
+            AM = camera_location + AE * a_length
+            # bpy.ops.object.empty_add(type='PLAIN_AXES', view_align=False, location=AM, layers=(
             #    False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False,
             #    False, False, False, False))
 
-            center = (AM + ADM) / 2
-            mirror = AM - center
+            ad_length = min
+            while ad_length < limit:
+                ADM = camera_location + ADE * ad_length
+                # bpy.ops.object.empty_add(type='PLAIN_AXES', view_align=False, location=ADM, layers=(
+                #    False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False,
+                #    False, False, False, False))
 
-            b_length = min
-            while b_length < limit:
-                BM = camera_location + BE * b_length
+                center = (AM + ADM) / 2
+                mirror = AM - center
 
-                BMirror = BM.reflect(mirror)
+                b_length = min
+                while b_length < limit:
+                    BM = camera_location + BE * b_length
 
-                BMirrorScreen = get_screen_position(BMirror)
+                    BMirror = BM.reflect(mirror)
 
-                distance = BMirrorScreen - BDScreen
+                    BMirrorScreen = get_screen_position(BMirror)
 
-                temp = Struct(AM, ADM, BM, BMirror, center, distance.length, mirror,ad_length,a_length)
-                array.append(temp)
+                    distance = BMirrorScreen - BDScreen
 
-                # print(distance.length)
+                    temp = Struct(AM, ADM, BM, BMirror, center, distance.length, mirror,ad_length,a_length)
+                    array.append(temp)
 
-                b_length += step
-            # print(center)
-            # bpy.ops.object.empty_add(type='PLAIN_AXES', view_align=False, location=center, layers=(
-            #   False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False,
-            #   False, False, False, False))
+                    # print(distance.length)
+
+                    b_length += step
+                # print(center)
+                # bpy.ops.object.empty_add(type='PLAIN_AXES', view_align=False, location=center, layers=(
+                #   False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False,
+                #   False, False, False, False))
 
 
-            ad_length += step
-        a_length += step
+                ad_length += step
+            a_length += step
 
-    # Sort
-    array = sorted(array, key=lambda struct: struct.length)
-    # Display
-    print(array[0].length,lens_length,array[0].al - 1,array[0].adl - 1)
+        # Sort
+        array = sorted(array, key=lambda struct: struct.length)
+        # Display
+        print(array[0].length,lens_length,array[0].al - 1,array[0].adl - 1)
 
-    # 実際に変更を加えている部分 ----------------------------------------------------------------------------
-    # Apply location and rotation to the Center
-    bpy.data.objects["center"].location = array[0].center
-    bpy.data.objects["center"].rotation_mode = 'QUATERNION'
-    bpy.data.objects["center"].rotation_quaternion = array[0].mirror.to_track_quat('Z', 'Y')
-    # -------------------------------------------------------------------------------------------------------
+        # 実際に変更を加えている部分 ----------------------------------------------------------------------------
+        # Apply location and rotation to the Center
+        bpy.data.objects["center"].location = array[0].center
+        bpy.data.objects["center"].rotation_mode = 'QUATERNION'
+        bpy.data.objects["center"].rotation_quaternion = array[0].mirror.to_track_quat('Z', 'Y')
+        # -------------------------------------------------------------------------------------------------------
 
-    lens_length += lens_step
+        lens_length += lens_step
 
 # Debug ---------------------------------------------------------------------
-debug = 0
+debug = 1
 if debug == 1:
     try:
         unregister()
